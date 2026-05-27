@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Dice Duel</title>
+<script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #fce4ec; color: #880e4f;
+  min-height: 100vh; display: flex; justify-content: center; align-items: center;
+}
+.card {
+  background: #fff; border-radius: 24px; padding: 36px 40px;
+  box-shadow: 0 8px 32px rgba(136,14,79,0.15);
+  max-width: 400px; width: 90%; text-align: center;
+}
+.card h1 { font-size: 2rem; letter-spacing: 2px; margin-bottom: 4px; color: #ad1457; }
+.card p.sub { color: #c2185b; margin-bottom: 20px; font-size: 0.9rem; }
+.card input {
+  width: 100%; padding: 12px 16px; border: 2px solid #f48fb1; border-radius: 12px;
+  font-size: 1rem; outline: none; transition: border-color 0.2s; text-align: center;
+}
+.card input:focus { border-color: #d81b60; }
+.card .field { margin-bottom: 16px; }
+.card label { display: block; font-size: 0.85rem; font-weight: 600; color: #880e4f; margin-bottom: 4px; }
+.btn {
+  width: 100%; padding: 14px; border: none; border-radius: 40px; font-size: 1rem;
+  font-weight: 600; cursor: pointer; transition: background 0.2s;
+  background: #d81b60; color: #fff;
+}
+.btn:hover { background: #ad1457; }
+.btn:disabled { background: #f48fb1; cursor: not-allowed; }
+.msg { font-size: 0.9rem; color: #c2185b; min-height: 1.5em; margin-bottom: 10px; }
+.waiting { display: none; font-size: 0.9rem; color: #ad1457; margin-top: 8px; }
+.waiting.show { display: block; }
+
+.game {
+  background: #fff; border-radius: 24px; padding: 32px 36px;
+  box-shadow: 0 8px 32px rgba(136,14,79,0.15);
+  max-width: 700px; width: 90%; text-align: center;
+}
+.game h1 { font-size: 1.8rem; margin-bottom: 16px; color: #ad1457; }
+.players { display: flex; gap: 16px; justify-content: center; margin-bottom: 16px; }
+.player {
+  flex: 1; background: #fce4ec; border-radius: 16px; padding: 16px 12px;
+  border: 3px solid transparent; transition: border-color 0.2s;
+}
+.player.active { border-color: #d81b60; background: #f8bbd0; }
+.player h2 { font-size: 1rem; margin-bottom: 6px; color: #880e4f; }
+.player .score { font-size: 2rem; font-weight: 700; color: #ad1457; }
+.player .wins { font-size: 0.75rem; color: #c2185b; margin-top: 4px; }
+.die {
+  width: 90px; height: 90px; background: #fff; border: 3px solid #f48fb1;
+  border-radius: 16px; display: inline-flex; justify-content: center;
+  align-items: center; font-size: 2.6rem; font-weight: 700; color: #ad1457;
+  margin-bottom: 12px;
+}
+.die.rolling { color: #f48fb1; }
+.message { font-size: 0.95rem; color: #c2185b; margin-bottom: 12px; min-height: 1.5em; }
+.controls { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.round-info { font-size: 0.85rem; color: #c2185b; margin-bottom: 8px; }
+.winner-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(136,14,79,0.6);
+  justify-content: center; align-items: center; z-index: 10;
+}
+.winner-overlay.show { display: flex; }
+.winner-card {
+  background: #fff; border-radius: 24px; padding: 32px 36px;
+  text-align: center; max-width: 360px; width: 90%;
+}
+.winner-card h2 { font-size: 1.6rem; color: #ad1457; margin-bottom: 6px; }
+.winner-card p { color: #880e4f; margin-bottom: 20px; font-size: 1rem; }
+canvas { position: fixed; inset: 0; pointer-events: none; z-index: 11; }
+@media (max-width:480px) {
+  .card, .game { padding: 24px 16px; }
+  .card h1, .game h1 { font-size: 1.5rem; }
+  .die { width: 72px; height: 72px; font-size: 2rem; }
+  .players { gap: 10px; }
+  .player { padding: 12px 8px; }
+  .player .score { font-size: 1.5rem; }
+}
+</style>
+</head>
+<body>
+
+<div class="card" id="lobby">
+  <h1>🎲 DICE</h1>
+  <p class="sub">Pink &amp; White · Online</p>
+  <div class="field">
+    <label>اسمك</label>
+    <input type="text" id="nameInput" value="زينب" maxlength="12">
+  </div>
+  <div class="msg" id="lobbyMsg">أدخل اسمك وابدأ</div>
+  <button class="btn" id="playBtn">🎲 ابحث عن لاعب</button>
+  <div class="waiting" id="waiting">⏳ في انتظار القمر...</div>
+</div>
+
+<div class="game" id="gameEl" style="display:none">
+  <h1>🎲 DICE</h1>
+  <div class="players">
+    <div class="player active" id="p0"><h2 id="n0">-</h2><div class="score" id="s0">0</div><div class="wins" id="w0">0</div></div>
+    <div class="player" id="p1"><h2 id="n1">-</h2><div class="score" id="s1">0</div><div class="wins" id="w1">0</div></div>
+  </div>
+  <div class="round-info" id="round">Round 1</div>
+  <div class="die" id="die">?</div>
+  <div class="message" id="msg">⏳ في الانتظار...</div>
+  <div class="controls">
+    <button class="btn" id="rollBtn" disabled style="max-width:180px">🎲 Roll</button>
+    <button class="btn" id="resetBtn" style="max-width:140px">جديد</button>
+    <button class="btn" id="leaveBtn" style="max-width:140px">خروج</button>
+  </div>
+</div>
+
+<div class="winner-overlay" id="winner">
+  <div class="winner-card">
+    <h2 id="winTitle">🏆 فائز!</h2>
+    <p id="winText">فاز!</p>
+    <button class="btn" id="againBtn">لعب مرة أخرى</button>
+  </div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const W = 30, ROOM = 'dice-arena'
+let peer, conn, host, idx, game, wins = [0,0]
+game = { s:[0,0], turn:0, round:1, over:false }
+
+const $ = id => document.getElementById(id)
+const lobby = $('lobby'), gameEl = $('gameEl'), winner = $('winner'), die = $('die')
+const sEls = [$('s0'),$('s1')], wEls = [$('w0'),$('w1')], pEls = [$('p0'),$('p1')], nEls = [$('n0'),$('n1')]
+
+function ui() {
+  for (let i=0;i<2;i++) {
+    sEls[i].textContent = game.s[i]
+    wEls[i].textContent = wins[i]
+    pEls[i].className = 'player' + (game.turn===i&&!game.over?' active':'')
+  }
+  $('round').textContent = `Round ${game.round}`
+}
+
+// Confetti
+const c = $('c'), cx = c.getContext('2d')
+let anim
+function rsz() { c.width = innerWidth; c.height = innerHeight }
+addEventListener('resize', rsz)
+function confetti(on) {
+  if (anim) { cancelAnimationFrame(anim); anim = null }
+  cx.clearRect(0,0,c.width,c.height)
+  if (!on) return
+  rsz()
+  const pieces = [], cs = ['#d81b60','#f48fb1','#fce4ec','#ad1457','#880e4f','#f8bbd0','#e91e63']
+  for (let i=200;i--;) pieces.push({x:Math.random()*c.width,y:-Math.random()*c.height-50,w:Math.random()*10+5,h:Math.random()*6+3,color:cs[i%cs.length],vx:(Math.random()-.5)*3,vy:Math.random()*3+2,r:Math.random()*360,rs:(Math.random()-.5)*6})
+  ;(function draw() {
+    let alive = false
+    for (const p of pieces) {
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.04; p.r+=p.rs
+      cx.save(); cx.translate(p.x,p.y); cx.rotate(p.r*Math.PI/180); cx.fillStyle=p.color; cx.fillRect(-p.w/2,-p.h/2,p.w,p.h); cx.restore()
+      if (p.y<c.height+50) alive = true
+    }
+    if (alive) anim = requestAnimationFrame(draw)
+  })()
+}
+
+function msg(t) { $('msg').textContent = t }
+function d(v) { die.textContent = v; die.classList.remove('rolling') }
+
+function hostRoll() {
+  if (game.over) return
+  const v = Math.floor(Math.random()*6)+1
+  game.s[idx] += v
+  const won = game.s[idx] >= W
+  if (won) { game.over = true; wins[idx]++ }
+  else { game.turn = game.turn?0:1; game.round++ }
+  d(v); ui()
+  conn?.send({t:'roll',v,idx,s:game.s,turn:game.turn,round:game.round,over:game.over,won:won?idx:-1,wins})
+  if (game.over) {
+    $('winTitle').textContent = '🏆 فائز!'
+    $('winText').textContent = `${nEls[idx].textContent} فاز بـ ${game.s[idx]} نقطة!`
+    winner.style.display = 'flex'; confetti(true)
+    msg(`🏆 ${nEls[idx].textContent} فاز!`); $('rollBtn').disabled = true
+  } else {
+    $('rollBtn').disabled = true; msg('⏳ دور القمر...')
+  }
+}
+
+$('rollBtn').onclick = () => {
+  if (!game.active) return
+  die.textContent = '...'; die.classList.add('rolling'); $('rollBtn').disabled = true
+  if (host) setTimeout(hostRoll, 300)
+  else conn?.send({t:'roll-req'})
+}
+
+function startGame() {
+  lobby.style.display = 'none'; gameEl.style.display = 'block'; game.active = true
+  $('rollBtn').disabled = game.turn !== idx
+  msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
+  ui()
+}
+
+$('playBtn').onclick = () => {
+  const name = $('nameInput').value.trim() || 'Player'
+  $('playBtn').disabled = true; $('waiting').classList.add('show')
+  $('lobbyMsg').textContent = 'جاري الاتصال...'
+
+  // Try to be host first
+  peer = new Peer(ROOM)
+  peer.on('open', () => {
+    host = true; idx = 0; nEls[0].textContent = name; nEls[1].textContent = '?'
+    $('lobbyMsg').textContent = '✅ أنت اللاعب الأول، في انتظار القمر...'
+  })
+  peer.on('error', () => {
+    // ID taken → join as guest
+    peer?.destroy()
+    peer = new Peer()
+    peer.on('open', () => {
+      conn = peer.connect(ROOM, {reliable:true})
+      conn.on('open', () => {
+        host = false; idx = 1; nEls[1].textContent = name
+        conn.send({t:'join',name})
+      })
+      conn.on('data', d => {
+        if (d.t === 'start') {
+          nEls[0].textContent = d.name; game.turn = d.turn
+          startGame()
+        }
+        if (d.t === 'roll') {
+          d.v; game.s = d.s; game.turn = d.turn; game.round = d.round; game.over = d.over; wins = d.wins
+          d(v); ui()
+          if (d.over) {
+            $('winTitle').textContent = '🏆 فائز!'
+            $('winText').textContent = `${nEls[d.won].textContent} فاز بـ ${d.s[d.won]} نقطة!`
+            winner.style.display = 'flex'; confetti(true)
+            msg(`🏆 ${nEls[d.won].textContent} فاز!`); $('rollBtn').disabled = true
+          } else {
+            $('rollBtn').disabled = d.turn !== idx
+            msg(d.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
+          }
+        }
+        if (d.t === 'reset') {
+          game = d.g; wins = d.wins; die.textContent='?'; die.classList.remove('rolling')
+          gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
+          $('rollBtn').disabled = game.turn !== idx
+          msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
+        }
+      })
+      conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
+    })
+    peer.on('error', () => $('lobbyMsg').textContent = '❌ تعذر الاتصال')
+  })
+
+  // Host: wait for connection
+  peer.on('connection', c => {
+    conn = c
+    conn.on('open', () => {
+      $('waiting').classList.remove('show')
+    })
+    conn.on('data', d => {
+      if (d.t === 'join') {
+        nEls[1].textContent = d.name
+        conn.send({t:'start',name:nEls[0].textContent,turn:0})
+        startGame()
+      }
+      if (d.t === 'roll-req') hostRoll()
+    })
+    conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
+  })
+}
+
+function rst() {
+  game = { s:[0,0], turn:0, round:1, over:false }
+  d('?'); gameEl.style.display='block'; winner.style.display='none'; confetti(false)
+  const myTurn = game.turn === idx
+  game.active = true; $('rollBtn').disabled = !myTurn
+  msg(myTurn?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
+  host && conn?.send({t:'reset',g:game,wins})
+}
+
+$('resetBtn').onclick = rst
+$('againBtn').onclick = rst
+$('leaveBtn').onclick = () => { conn?.close(); peer?.destroy(); location.reload() }
+</script>
+</body>
+</html>
