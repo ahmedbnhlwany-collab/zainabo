@@ -166,17 +166,17 @@ function confetti(on) {
 }
 
 function msg(t) { $('msg').textContent = t }
-function d(v) { die.textContent = v; die.classList.remove('rolling') }
+function showDie(v) { die.textContent = v; die.classList.remove('rolling') }
 
 function hostRoll() {
   if (game.over) return
-  const v = Math.floor(Math.random()*6)+1
-  game.s[idx] += v
+  const val = Math.floor(Math.random()*6)+1
+  game.s[idx] += val
   const won = game.s[idx] >= W
   if (won) { game.over = true; wins[idx]++ }
   else { game.turn = game.turn?0:1; game.round++ }
-  d(v); ui()
-  conn?.send({t:'roll',v,idx,s:game.s,turn:game.turn,round:game.round,over:game.over,won:won?idx:-1,wins})
+  showDie(val); ui()
+  conn?.send({t:'roll',v:val,idx,s:game.s.slice(),turn:game.turn,round:game.round,over:game.over,won:won?idx:-1,wins:wins.slice()})
   if (game.over) {
     $('winTitle').textContent = '🏆 فائز!'
     $('winText').textContent = `${nEls[idx].textContent} فاز بـ ${game.s[idx]} نقطة!`
@@ -201,19 +201,53 @@ function startGame() {
   ui()
 }
 
+function handleHost(data, c) {
+  if (data.t === 'join') {
+    nEls[1].textContent = data.name
+    c.send({t:'start',name:nEls[0].textContent,turn:0})
+    startGame()
+  }
+  if (data.t === 'roll-req') hostRoll()
+}
+
+function handleGuest(data) {
+  if (data.t === 'start') {
+    nEls[0].textContent = data.name; game.turn = data.turn
+    startGame()
+  }
+  if (data.t === 'roll') {
+    showDie(data.v)
+    game.s = data.s; game.turn = data.turn; game.round = data.round; game.over = data.over; wins = data.wins
+    ui()
+    if (data.over) {
+      $('winTitle').textContent = '🏆 فائز!'
+      $('winText').textContent = `${nEls[data.won].textContent} فاز بـ ${data.s[data.won]} نقطة!`
+      winner.style.display = 'flex'; confetti(true)
+      msg(`🏆 ${nEls[data.won].textContent} فاز!`); $('rollBtn').disabled = true
+    } else {
+      $('rollBtn').disabled = data.turn !== idx
+      msg(data.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
+    }
+  }
+  if (data.t === 'reset') {
+    game = data.g; wins = data.wins; die.textContent='?'; die.classList.remove('rolling')
+    gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
+    $('rollBtn').disabled = game.turn !== idx
+    msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
+  }
+}
+
 $('playBtn').onclick = () => {
   const name = $('nameInput').value.trim() || 'Player'
   $('playBtn').disabled = true; $('waiting').classList.add('show')
   $('lobbyMsg').textContent = 'جاري الاتصال...'
 
-  // Try to be host first
   peer = new Peer(ROOM)
   peer.on('open', () => {
     host = true; idx = 0; nEls[0].textContent = name; nEls[1].textContent = '?'
     $('lobbyMsg').textContent = '✅ أنت اللاعب الأول، في انتظار القمر...'
   })
   peer.on('error', () => {
-    // ID taken → join as guest
     peer?.destroy()
     peer = new Peer()
     peer.on('open', () => {
@@ -222,61 +256,27 @@ $('playBtn').onclick = () => {
         host = false; idx = 1; nEls[1].textContent = name
         conn.send({t:'join',name})
       })
-      conn.on('data', d => {
-        if (d.t === 'start') {
-          nEls[0].textContent = d.name; game.turn = d.turn
-          startGame()
-        }
-        if (d.t === 'roll') {
-          d.v; game.s = d.s; game.turn = d.turn; game.round = d.round; game.over = d.over; wins = d.wins
-          d(v); ui()
-          if (d.over) {
-            $('winTitle').textContent = '🏆 فائز!'
-            $('winText').textContent = `${nEls[d.won].textContent} فاز بـ ${d.s[d.won]} نقطة!`
-            winner.style.display = 'flex'; confetti(true)
-            msg(`🏆 ${nEls[d.won].textContent} فاز!`); $('rollBtn').disabled = true
-          } else {
-            $('rollBtn').disabled = d.turn !== idx
-            msg(d.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
-          }
-        }
-        if (d.t === 'reset') {
-          game = d.g; wins = d.wins; die.textContent='?'; die.classList.remove('rolling')
-          gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
-          $('rollBtn').disabled = game.turn !== idx
-          msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
-        }
-      })
+      conn.on('data', handleGuest)
       conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
     })
     peer.on('error', () => $('lobbyMsg').textContent = '❌ تعذر الاتصال')
   })
 
-  // Host: wait for connection
   peer.on('connection', c => {
     conn = c
-    conn.on('open', () => {
-      $('waiting').classList.remove('show')
-    })
-    conn.on('data', d => {
-      if (d.t === 'join') {
-        nEls[1].textContent = d.name
-        conn.send({t:'start',name:nEls[0].textContent,turn:0})
-        startGame()
-      }
-      if (d.t === 'roll-req') hostRoll()
-    })
+    conn.on('open', () => $('waiting').classList.remove('show'))
+    conn.on('data', data => handleHost(data, conn))
     conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
   })
 }
 
 function rst() {
   game = { s:[0,0], turn:0, round:1, over:false }
-  d('?'); gameEl.style.display='block'; winner.style.display='none'; confetti(false)
+  showDie('?'); gameEl.style.display='block'; winner.style.display='none'; confetti(false)
   const myTurn = game.turn === idx
   game.active = true; $('rollBtn').disabled = !myTurn
   msg(myTurn?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
-  host && conn?.send({t:'reset',g:game,wins})
+  host && conn?.send({t:'reset',g:game,wins:wins.slice()})
 }
 
 $('resetBtn').onclick = rst
