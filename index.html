@@ -229,6 +229,12 @@ $('playBtn').onclick = () => {
       conn.on('data', d => {
         if (d.t === 'join') { nEls[1].textContent = d.name; conn.send({t:'start',name,turn:0}); startGame() }
         if (d.t === 'roll-req') hostRoll()
+        if (d.t === 'reset') {
+          game = d.g; wins = d.wins; die.textContent='?'; die.classList.remove('rolling')
+          gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
+          $('rollBtn').disabled = game.turn !== idx
+          msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
+        }
       })
       conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
     })
@@ -277,7 +283,7 @@ function rst() {
   const myTurn = game.turn === idx
   game.active = true; $('rollBtn').disabled = !myTurn
   msg(myTurn?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
-  host && conn?.send({t:'reset',g:game,wins:wins.slice()})
+  if (conn?.open) conn.send({t:'reset',g:game,wins:wins.slice()})
 }
 
 $('resetBtn').onclick = rst
