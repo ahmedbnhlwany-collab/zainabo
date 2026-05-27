@@ -24,7 +24,7 @@ body {
   font-size: 1rem; outline: none; transition: border-color 0.2s; text-align: center;
 }
 .card input:focus { border-color: #d81b60; }
-.card .field { margin-bottom: 16px; }
+.card .field { margin-bottom: 14px; }
 .card label { display: block; font-size: 0.85rem; font-weight: 600; color: #880e4f; margin-bottom: 4px; }
 .btn {
   width: 100%; padding: 14px; border: none; border-radius: 40px; font-size: 1rem;
@@ -33,9 +33,7 @@ body {
 }
 .btn:hover { background: #ad1457; }
 .btn:disabled { background: #f48fb1; cursor: not-allowed; }
-.msg { font-size: 0.9rem; color: #c2185b; min-height: 1.5em; margin-bottom: 10px; }
-.waiting { display: none; font-size: 0.9rem; color: #ad1457; margin-top: 8px; }
-.waiting.show { display: block; }
+.msg { font-size: 0.85rem; color: #c2185b; min-height: 1.3em; margin-bottom: 10px; }
 
 .game {
   background: #fff; border-radius: 24px; padding: 32px 36px;
@@ -74,6 +72,13 @@ body {
 .winner-card h2 { font-size: 1.6rem; color: #ad1457; margin-bottom: 6px; }
 .winner-card p { color: #880e4f; margin-bottom: 20px; font-size: 1rem; }
 canvas { position: fixed; inset: 0; pointer-events: none; z-index: 11; }
+
+.room-display {
+  display: none; margin: 12px 0; padding: 12px; background: #fce4ec; border-radius: 12px;
+  font-size: 1.8rem; font-weight: 700; letter-spacing: 4px; color: #d81b60;
+}
+.room-display.show { display: block; }
+
 @media (max-width:480px) {
   .card, .game { padding: 24px 16px; }
   .card h1, .game h1 { font-size: 1.5rem; }
@@ -93,9 +98,13 @@ canvas { position: fixed; inset: 0; pointer-events: none; z-index: 11; }
     <label>اسمك</label>
     <input type="text" id="nameInput" value="زينب" maxlength="12">
   </div>
-  <div class="msg" id="lobbyMsg">أدخل اسمك وابدأ</div>
-  <button class="btn" id="playBtn">🎲 ابحث عن لاعب</button>
-  <div class="waiting" id="waiting">⏳ في انتظار القمر...</div>
+  <div class="field">
+    <label>كود الغرفة</label>
+    <input type="text" id="codeInput" value="007" maxlength="10" style="direction:ltr">
+  </div>
+  <div class="msg" id="lobbyMsg">ادخل اسمك وكود الغرفة</div>
+  <div class="room-display" id="roomDisplay"></div>
+  <button class="btn" id="playBtn">🎲 ازيك يا قمر</button>
 </div>
 
 <div class="game" id="gameEl" style="display:none">
@@ -125,7 +134,7 @@ canvas { position: fixed; inset: 0; pointer-events: none; z-index: 11; }
 <canvas id="c"></canvas>
 
 <script>
-const W = 30, ROOM = 'dice-arena'
+const W = 30
 let peer, conn, host, idx, game, wins = [0,0]
 game = { s:[0,0], turn:0, round:1, over:false }
 
@@ -142,7 +151,6 @@ function ui() {
   $('round').textContent = `Round ${game.round}`
 }
 
-// Confetti
 const c = $('c'), cx = c.getContext('2d')
 let anim
 function rsz() { c.width = innerWidth; c.height = innerHeight }
@@ -201,72 +209,65 @@ function startGame() {
   ui()
 }
 
-function handleHost(data, c) {
-  if (data.t === 'join') {
-    nEls[1].textContent = data.name
-    c.send({t:'start',name:nEls[0].textContent,turn:0})
-    startGame()
-  }
-  if (data.t === 'roll-req') hostRoll()
-}
-
-function handleGuest(data) {
-  if (data.t === 'start') {
-    nEls[0].textContent = data.name; game.turn = data.turn
-    startGame()
-  }
-  if (data.t === 'roll') {
-    showDie(data.v)
-    game.s = data.s; game.turn = data.turn; game.round = data.round; game.over = data.over; wins = data.wins
-    ui()
-    if (data.over) {
-      $('winTitle').textContent = '🏆 فائز!'
-      $('winText').textContent = `${nEls[data.won].textContent} فاز بـ ${data.s[data.won]} نقطة!`
-      winner.style.display = 'flex'; confetti(true)
-      msg(`🏆 ${nEls[data.won].textContent} فاز!`); $('rollBtn').disabled = true
-    } else {
-      $('rollBtn').disabled = data.turn !== idx
-      msg(data.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
-    }
-  }
-  if (data.t === 'reset') {
-    game = data.g; wins = data.wins; die.textContent='?'; die.classList.remove('rolling')
-    gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
-    $('rollBtn').disabled = game.turn !== idx
-    msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
-  }
-}
-
 $('playBtn').onclick = () => {
   const name = $('nameInput').value.trim() || 'Player'
-  $('playBtn').disabled = true; $('waiting').classList.add('show')
-  $('lobbyMsg').textContent = 'جاري الاتصال...'
+  const code = $('codeInput').value.trim() || '007'
+  $('playBtn').disabled = true
+  $('lobbyMsg').textContent = 'ازيك يا قمر...'
 
-  peer = new Peer(ROOM)
+  peer = new Peer(code)
   peer.on('open', () => {
+    // Host
     host = true; idx = 0; nEls[0].textContent = name; nEls[1].textContent = '?'
-    $('lobbyMsg').textContent = '✅ أنت اللاعب الأول، في انتظار القمر...'
+    $('roomDisplay').textContent = code
+    $('roomDisplay').classList.add('show')
+    $('lobbyMsg').textContent = '🎲 أنت الأول — في انتظار القمر...'
+
+    peer.on('connection', c => {
+      conn = c
+      conn.on('open', () => $('roomDisplay').classList.remove('show'))
+      conn.on('data', d => {
+        if (d.t === 'join') { nEls[1].textContent = d.name; conn.send({t:'start',name,turn:0}); startGame() }
+        if (d.t === 'roll-req') hostRoll()
+      })
+      conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
+    })
   })
   peer.on('error', () => {
+    // ID taken → join as guest
     peer?.destroy()
     peer = new Peer()
     peer.on('open', () => {
-      conn = peer.connect(ROOM, {reliable:true})
+      conn = peer.connect(code, {reliable:true})
+      const timeout = setTimeout(() => { $('lobbyMsg').textContent = '❌ ما فيش قمر. جرب كود تاني'; $('playBtn').disabled = false }, 4000)
       conn.on('open', () => {
+        clearTimeout(timeout)
         host = false; idx = 1; nEls[1].textContent = name
         conn.send({t:'join',name})
       })
-      conn.on('data', handleGuest)
+      conn.on('data', d => {
+        if (d.t === 'start') { nEls[0].textContent = d.name; game.turn = d.turn; startGame() }
+        if (d.t === 'roll') {
+          showDie(d.v); game.s = d.s; game.turn = d.turn; game.round = d.round; game.over = d.over; wins = d.wins; ui()
+          if (d.over) {
+            $('winTitle').textContent = '🏆 فائز!'
+            $('winText').textContent = `${nEls[d.won].textContent} فاز بـ ${d.s[d.won]} نقطة!`
+            winner.style.display = 'flex'; confetti(true)
+            msg(`🏆 ${nEls[d.won].textContent} فاز!`); $('rollBtn').disabled = true
+          } else {
+            $('rollBtn').disabled = d.turn !== idx
+            msg(d.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...')
+          }
+        }
+        if (d.t === 'reset') {
+          game = d.g; wins = d.wins; die.textContent='?'; die.classList.remove('rolling')
+          gameEl.style.display='block'; winner.style.display='none'; confetti(false); game.active=true
+          $('rollBtn').disabled = game.turn !== idx
+          msg(game.turn===idx?'🎲 دورك! اضغط Roll':'⏳ دور القمر...'); ui()
+        }
+      })
       conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
     })
-    peer.on('error', () => $('lobbyMsg').textContent = '❌ تعذر الاتصال')
-  })
-
-  peer.on('connection', c => {
-    conn = c
-    conn.on('open', () => $('waiting').classList.remove('show'))
-    conn.on('data', data => handleHost(data, conn))
-    conn.on('close', () => { msg('⚠️ القمر غادر'); game.active=false; confetti(false) })
   })
 }
 
